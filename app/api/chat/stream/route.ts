@@ -29,21 +29,22 @@ export async function POST(req: Request) {
   const { text } = await req.json().catch(() => ({}));
   if (typeof text !== "string" || !text.trim()) return Response.json({ error: "empty message" }, { status: 400 });
 
+  const col = db().collection(config.collections.messages);
+  let system: string;
+  let recent;
   try {
-    await assertUnderCap(user.uid);
+    [, recent, system] = await Promise.all([
+      assertUnderCap(user.uid),
+      col.where("uid", "==", user.uid).orderBy("createdAt", "desc").limit(config.historyMessages).get(),
+      buildSystemPrompt(user.uid),
+    ]);
   } catch (e) {
     if (e instanceof SpendCapError) return Response.json({ error: e.message, code: "spend_cap" }, { status: 429 });
     throw e;
   }
 
-  const col = db().collection(config.collections.messages);
-  const recent = await col.where("uid", "==", user.uid).orderBy("createdAt", "desc").limit(config.historyMessages).get();
   const history: ChatMessage[] = recent.docs.reverse().map((d) => ({ role: d.data().role, content: d.data().content }));
-  const messages: ChatMessage[] = [
-    { role: "system", content: await buildSystemPrompt(user.uid) },
-    ...history,
-    { role: "user", content: text.trim() },
-  ];
+  const messages: ChatMessage[] = [{ role: "system", content: system }, ...history, { role: "user", content: text.trim() }];
 
   const enc = new TextEncoder();
   const started = Date.now();

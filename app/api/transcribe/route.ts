@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { withUser } from "@/lib/api";
 import { transcribe } from "@/lib/openrouter";
 import { addSpend, assertUnderCap, usdToGbp } from "@/lib/spend";
@@ -14,6 +14,6 @@ export const POST = withUser(async (req, user) => {
   const started = Date.now();
   const format = (req.headers.get("content-type") ?? "").includes("mpeg") ? "mp3" : "wav";
   const { text, costUsd } = await transcribe(wav.toString("base64"), format);
-  await addSpend(user.uid, usdToGbp(costUsd || config.sttCostUsdPerCall));
+  after(() => addSpend(user.uid, usdToGbp(costUsd || config.sttCostUsdPerCall)));
   return NextResponse.json({ text, ms: Date.now() - started });
 });
