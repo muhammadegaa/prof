@@ -14,7 +14,7 @@ export function LoginForm() {
     setBusy(true);
     const form = new FormData(e.currentTarget);
     try {
-      const cred = await signInWithEmailAndPassword(clientAuth, String(form.get("email")), String(form.get("password")));
+      const cred = await signInWithEmailAndPassword(clientAuth, String(form.get("email")).trim().toLowerCase(), String(form.get("password")));
       const res = await fetch("/api/session", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -26,8 +26,15 @@ export function LoginForm() {
         return;
       }
       window.location.href = "/";
-    } catch {
-      setError("Wrong email or password.");
+    } catch (e) {
+      const code = (e as { code?: string }).code ?? "unknown";
+      setError(
+        code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found"
+          ? "Wrong email or password."
+          : code === "auth/network-request-failed"
+            ? "Network problem. Check your connection and try again."
+            : `Sign in failed (${code}).`,
+      );
     } finally {
       setBusy(false);
     }
