@@ -9,6 +9,12 @@ type Timing = { stt?: number; llm?: number; tts?: number };
 
 const phaseLabel: Record<Phase, string> = { idle: "Tap to start", listening: "Listening", thinking: "Thinking", speaking: "Speaking" };
 
+/** First sentence alone so audio starts sooner; the rest is generated while it plays. */
+function speechChunks(text: string) {
+  const parts = (text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) ?? [text]).map((x) => x.trim()).filter(Boolean);
+  return parts.length <= 1 ? [text] : [parts[0], parts.slice(1).join(" ")];
+}
+
 async function api<T>(path: string, init: RequestInit): Promise<T> {
   const res = await fetch(path, init);
   const json = await res.json().catch(() => ({}));
@@ -53,12 +59,17 @@ export function TalkClient() {
 
     setPhase("speaking");
     const started = Date.now();
-    const res = await fetch("/api/tts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: chat.reply }) });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Voice failed (${res.status})`);
-    const blob = await res.blob();
-    t.tts = Date.now() - started;
-    setTiming({ ...t });
-    if (audio.current) await playBlob(audio.current, blob);
+    const fetches = speechChunks(chat.reply).map(async (part) => {
+      const res = await fetch("/api/tts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: part }) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Voice failed (${res.status})`);
+      return res.blob();
+    });
+    fetches.forEach((f) => f.catch(() => {}));
+    for (let i = 0; i < fetches.length; i++) {
+      const blob = await fetches[i];
+      if (i === 0) { t.tts = Date.now() - started; setTiming({ ...t }); }
+      if (audio.current) await playBlob(audio.current, blob);
+    }
   }, []);
 
   const turn = useCallback(async (blob: Blob | null) => {
