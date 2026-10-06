@@ -49,3 +49,17 @@ button, input { font: inherit; }
 .btn { height: 56px; border-radius: 28px; border: 0; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: 17px; cursor: pointer; }
 .btn:disabled { opacity: 0.5; }
 .err { background: var(--danger-bg); color: var(--danger); border-radius: 14px; padding: 11px 14px; font-size: 14px; }
+
+.chip { height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 14px; font-weight: 500; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--surface-2); }
+.chip:disabled { opacity: 0.5; }
+.thread { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 160px; overflow-y: auto; }
+.bubble { max-width: 86%; padding: 11px 15px; font-size: 16px; line-height: 1.45; border-radius: 18px; }
+.bubble.me { align-self: flex-end; background: var(--surface-2); border-bottom-right-radius: 4px; }
+.bubble.ai { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.bigorb { width: 88px; height: 88px; border-radius: 50%; border: 0; background: var(--accent); display: flex; align-items: center; justify-content: center; cursor: pointer; margin: 14px 0 10px; transition: box-shadow 80ms linear; touch-action: none; }
+.textbox { flex: 1; height: 44px; border-radius: 22px; border: 1px solid var(--line); background: var(--bg); padding: 0 16px; font-size: 16px; color: var(--text); }
+.textbox:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.area { min-height: 120px; border-radius: 14px; border: 1px solid var(--line); background: var(--bg); padding: 12px 14px; font-size: 14px; color: var(--text); resize: vertical; }
+.voice { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
