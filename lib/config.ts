@@ -17,7 +17,7 @@ export const config = {
   ttsVoiceId: process.env.ELEVENLABS_VOICE_ID ?? "",
   ttsFormat: process.env.TTS_FORMAT ?? "mp3_44100_64",
   historyMessages: num(process.env.HISTORY_MESSAGES, 20),
-  maxReplyTokens: num(process.env.MAX_REPLY_TOKENS, 400),
+  maxReplyTokens: num(process.env.MAX_REPLY_TOKENS, 220),
 
   // Spend cap. Prices below are estimates, not verified against vendor price pages.
   dailySpendCapGbp: num(process.env.DAILY_SPEND_CAP_GBP, 2),

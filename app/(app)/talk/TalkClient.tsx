@@ -1,216 +1,242 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { openMic, playBlob, unlockedAudio, type Mic } from "@/lib/voice-client";
+import { openMic, SpeechQueue, unlockAudio, type Mic } from "@/lib/voice-client";
 
-type Msg = { role: "user" | "assistant"; content: string };
-type Phase = "idle" | "listening" | "thinking" | "speaking";
-type Timing = { stt?: number; llm?: number; tts?: number };
+type Phase = "idle" | "connecting" | "listening" | "thinking" | "speaking";
 
-const phaseLabel: Record<Phase, string> = { idle: "Tap to start", listening: "Listening", thinking: "Thinking", speaking: "Speaking" };
+const OPENER = "Hi. What is the one thing you will do today that moves money?";
+const label: Record<Phase, string> = { idle: "", connecting: "Connecting", listening: "Listening", thinking: "Thinking", speaking: "Speaking" };
 
-/** First sentence alone so audio starts sooner; the rest is generated while it plays. */
-function speechChunks(text: string) {
-  const parts = (text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) ?? [text]).map((x) => x.trim()).filter(Boolean);
-  return parts.length <= 1 ? [text] : [parts[0], parts.slice(1).join(" ")];
-}
-
-async function api<T>(path: string, init: RequestInit): Promise<T> {
-  const res = await fetch(path, init);
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error ?? `Request failed (${res.status})`);
-  return json as T;
-}
+const mmss = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
 export function TalkClient() {
-  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [inCall, setInCall] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
+  const [you, setYou] = useState("");
+  const [agent, setAgent] = useState("");
+  const [muted, setMuted] = useState(false);
+  const [interrupt, setInterrupt] = useState(true);
   const [error, setError] = useState("");
-  const [timing, setTiming] = useState<Timing>({});
-  const [holdMode, setHoldMode] = useState(false);
-  const [level, setLevel] = useState(0);
-  const [typed, setTyped] = useState("");
+  const [seconds, setSeconds] = useState(0);
+  const [meter, setMeter] = useState({ rms: 0, gate: 0 });
+  const [timing, setTiming] = useState("");
+  const [hasNow, setHasNow] = useState(true);
 
   const mic = useRef<Mic | null>(null);
-  const audio = useRef<HTMLAudioElement | null>(null);
+  const queue = useRef<SpeechQueue | null>(null);
   const active = useRef(false);
-  const holdRec = useRef<ReturnType<Mic["record"]> | null>(null);
-  const endRef = useRef<HTMLDivElement>(null);
+  const stream = useRef<AbortController | null>(null);
+  const interruptRef = useRef(true);
+  const offFrame = useRef<(() => void) | null>(null);
+  const rec = useRef<{ cancel: () => void } | null>(null);
 
   useEffect(() => {
-    try { setHoldMode(localStorage.getItem("pc_hold") === "1"); } catch {}
-    return () => { active.current = false; mic.current?.stop(); };
+    try { const v = localStorage.getItem("pc_interrupt"); if (v !== null) { setInterrupt(v === "1"); interruptRef.current = v === "1"; } } catch {}
+    fetch("/api/settings").then((r) => r.json()).then((s) => setHasNow(!!s.hasNow)).catch(() => {});
+    return () => endCall();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, phase]);
 
-  const toggleHold = (v: boolean) => {
-    setHoldMode(v);
-    try { localStorage.setItem("pc_hold", v ? "1" : "0"); } catch {}
+  useEffect(() => {
+    if (!inCall) return;
+    const id = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [inCall]);
+
+  const toggleInterrupt = () => {
+    const v = !interrupt;
+    setInterrupt(v);
+    interruptRef.current = v;
+    try { localStorage.setItem("pc_interrupt", v ? "1" : "0"); } catch {}
   };
 
-  const respond = useCallback(async (text: string, t: Timing) => {
-    setMsgs((m) => [...m, { role: "user", content: text }]);
-    setPhase("thinking");
-    const chat = await api<{ reply: string; ms: number }>("/api/chat", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }),
-    });
-    t.llm = chat.ms;
-    setMsgs((m) => [...m, { role: "assistant", content: chat.reply }]);
+  const toggleMute = () => { const v = !muted; setMuted(v); mic.current?.setMuted(v); };
 
-    setPhase("speaking");
-    const started = Date.now();
-    const fetches = speechChunks(chat.reply).map(async (part) => {
-      const res = await fetch("/api/tts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: part }) });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Voice failed (${res.status})`);
-      return res.blob();
-    });
-    fetches.forEach((f) => f.catch(() => {}));
-    for (let i = 0; i < fetches.length; i++) {
-      const blob = await fetches[i];
-      if (i === 0) { t.tts = Date.now() - started; setTiming({ ...t }); }
-      if (audio.current) await playBlob(audio.current, blob);
-    }
-  }, []);
-
-  const turn = useCallback(async (blob: Blob | null) => {
-    if (!blob) return;
-    const t: Timing = {};
-    setPhase("thinking");
-    const stt = await api<{ text: string; ms: number }>("/api/transcribe", { method: "POST", headers: { "content-type": "audio/wav" }, body: blob });
-    t.stt = stt.ms;
-    if (stt.text) await respond(stt.text, t);
-  }, [respond]);
-
-  const loop = useCallback(async () => {
-    while (active.current && mic.current) {
-      try {
-        setPhase("listening");
-        const rec = mic.current.record("auto", setLevel);
-        const blob = await rec.done;
-        if (!active.current) break;
-        await turn(blob);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Something failed");
-        active.current = false;
-      }
-    }
-    setPhase("idle");
-    setLevel(0);
-  }, [turn]);
-
-  async function start() {
-    setError("");
-    try {
-      audio.current = await unlockedAudio();
-      mic.current = await openMic();
-    } catch {
-      setError("Microphone access was denied. Allow it in Settings for this app and try again.");
-      return;
-    }
-    if (holdMode) { setPhase("idle"); return; }
-    active.current = true;
-    void loop();
-  }
-
-  function stop() {
+  function endCall() {
     active.current = false;
-    holdRec.current?.cancel();
-    audio.current?.pause();
+    rec.current?.cancel();
+    stream.current?.abort();
+    queue.current?.cancel();
+    offFrame.current?.();
     mic.current?.stop();
     mic.current = null;
+    setInCall(false);
     setPhase("idle");
-    setLevel(0);
+    setMeter({ rms: 0, gate: 0 });
   }
 
-  async function holdDown() {
-    if (!mic.current || phase !== "idle") return;
-    setError("");
-    setPhase("listening");
-    holdRec.current = mic.current.record("manual", setLevel);
-  }
-  async function holdUp() {
-    const rec = holdRec.current;
-    if (!rec) return;
-    holdRec.current = null;
-    rec.finish();
-    try { await turn(await rec.done); } catch (e) { setError(e instanceof Error ? e.message : "Something failed"); }
-    setPhase("idle");
-    setLevel(0);
-  }
-
-  async function sendTyped(e: React.FormEvent) {
-    e.preventDefault();
-    const text = typed.trim();
-    if (!text) return;
-    setTyped("");
-    setError("");
+  /** Speak what `produce` says, sentence by sentence. Returns true if the user talked over it. */
+  const speakTurn = useCallback(async (m: Mic, produce: (say: (s: string) => void, signal: AbortSignal) => Promise<void>) => {
+    const q = queue.current!;
+    const ctl = new AbortController();
+    stream.current = ctl;
+    let barged = false;
+    const holder: { watch: ReturnType<Mic["waitForBarge"]> | null } = { watch: null };
+    const onPlay = () => {
+      setPhase("speaking");
+      if (interruptRef.current && !holder.watch) {
+        holder.watch = m.waitForBarge();
+        void holder.watch.promise.then(() => { barged = true; q.cancel(); ctl.abort(); });
+      }
+    };
     try {
-      audio.current ??= await unlockedAudio();
-      await respond(text, {});
-    } catch (err) { setError(err instanceof Error ? err.message : "Something failed"); }
-    setPhase(mic.current ? "idle" : "idle");
+      await produce((s) => q.enqueue(s, onPlay), ctl.signal);
+    } catch (e) {
+      if (!barged) throw e;
+    }
+    await q.idle();
+    holder.watch?.cancel();
+    if (q.error && !barged) throw q.error;
+    return barged;
+  }, []);
+
+  const runCall = useCallback(async (m: Mic) => {
+    let primed = await speakTurn(m, async (say) => { setAgent(OPENER); say(OPENER); });
+
+    while (active.current) {
+      setPhase("listening");
+      const r = m.recordUtterance({ primed });
+      rec.current = r;
+      primed = false;
+      const blob = await r.done;
+      if (!active.current) return;
+
+      setPhase("thinking");
+      const t0 = Date.now();
+      const sttRes = await fetch("/api/transcribe", { method: "POST", headers: { "content-type": "audio/wav" }, body: blob });
+      const stt = await sttRes.json();
+      if (!sttRes.ok) throw new Error(stt.error ?? `Speech recognition failed (${sttRes.status})`);
+      if (!stt.text) continue;
+      const sttMs = Date.now() - t0;
+      setYou(stt.text);
+      setAgent("");
+
+      let firstAudio = 0;
+      primed = await speakTurn(m, async (say, signal) => {
+        const res = await fetch("/api/chat/stream", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: stt.text }), signal });
+        if (!res.ok || !res.body) throw new Error((await res.json().catch(() => ({}))).error ?? `Chat failed (${res.status})`);
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let i: number;
+          while ((i = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, i);
+            buf = buf.slice(i + 1);
+            if (!line.trim()) continue;
+            const msg = JSON.parse(line);
+            if (msg.error) throw new Error(msg.error);
+            if (msg.s) {
+              if (!firstAudio) firstAudio = Date.now() - t0;
+              setAgent((a) => (a ? a + " " : "") + msg.s);
+              say(msg.s);
+            }
+          }
+        }
+      });
+      setTiming(`heard ${(sttMs / 1000).toFixed(1)}s · first words ${(firstAudio / 1000).toFixed(1)}s`);
+    }
+  }, [speakTurn]);
+
+  function startCall() {
+    setError("");
+    setYou("");
+    setAgent("");
+    setSeconds(0);
+    setMuted(false);
+    // Both calls below must happen synchronously inside this tap so iOS lets audio run.
+    const audio = unlockAudio();
+    queue.current = new SpeechQueue(audio);
+    const pending = openMic();
+    setInCall(true);
+    setPhase("connecting");
+
+    pending
+      .then((m) => {
+        mic.current = m;
+        active.current = true;
+        let n = 0;
+        offFrame.current = m.onFrame((f, gate) => { if (++n % 3 === 0) setMeter({ rms: f.rms, gate }); });
+        return runCall(m);
+      })
+      .catch((e: Error) => {
+        const denied = e.name === "NotAllowedError" || e.name === "SecurityError";
+        setError(denied ? "Microphone access was denied. Allow it for this site in Settings, then try again." : e.message);
+        endCall();
+      });
   }
 
-  const running = mic.current !== null || phase !== "idle";
-  const ring = Math.min(1, level * 12);
+  const level = Math.min(1, meter.rms * 10);
+  const ringStyle = phase === "listening" && !muted
+    ? { boxShadow: `0 0 0 ${10 + level * 18}px var(--surface-2), 0 0 0 ${22 + level * 40}px var(--surface)` }
+    : undefined;
 
-  return (
-    <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1 className="h1">Talk</h1>
-        <button className="chip" onClick={() => toggleHold(!holdMode)} aria-pressed={holdMode} disabled={running}>
-          {holdMode ? "Hold to talk" : "Hands-free"}
+  if (!inCall) {
+    return (
+      <div className="precall">
+        <div>
+          <div className="eyebrow">Voice</div>
+          <h1 className="h1">Talk to your agent</h1>
+        </div>
+        <p className="lead">A live call. It knows your bet, your wins and what you committed to. Talk normally and interrupt any time.</p>
+        {!hasNow && <div className="notice">NOW.md is not imported yet, so it will not know your bet. Import it in Settings first.</div>}
+        {error && <div className="err" role="alert">{error}</div>}
+        <button className="startcall" onClick={startCall}>
+          <MicIcon size={26} /> Start call
+        </button>
+        <button className="chip" aria-pressed={interrupt} onClick={toggleInterrupt}>
+          Interrupting: {interrupt ? "on" : "off (use with speakers)"}
         </button>
       </div>
+    );
+  }
 
-      <div className="thread" aria-live="polite">
-        {msgs.length === 0 && <div className="eyebrow">Start a conversation, or type below.</div>}
-        {msgs.map((m, i) => (
-          <div key={i} className={m.role === "user" ? "bubble me" : "bubble ai"}>{m.content}</div>
-        ))}
-        <div ref={endRef} />
+  return (
+    <div className="callscreen" role="dialog" aria-label="Voice call">
+      <div className="calltop">
+        <span className="live"><i />{phase === "connecting" ? "Connecting" : "Connected"}</span>
+        <span className="timer">{mmss(seconds)}</span>
       </div>
 
-      {error && <div className="err" role="alert">{error}</div>}
-
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, paddingTop: 8 }}>
-        {holdMode && mic.current ? (
-          <button
-            className="bigorb"
-            style={{ boxShadow: `0 0 0 ${8 + ring * 14}px var(--surface-2), 0 0 0 ${16 + ring * 26}px var(--surface)` }}
-            onPointerDown={holdDown} onPointerUp={holdUp} onPointerLeave={holdUp} aria-label="Hold to talk"
-          >
-            <MicIcon />
-          </button>
-        ) : (
-          <button
-            className="bigorb"
-            style={{ boxShadow: `0 0 0 ${8 + ring * 14}px var(--surface-2), 0 0 0 ${16 + ring * 26}px var(--surface)` }}
-            onClick={running ? stop : start}
-            aria-label={running ? "End conversation" : "Start conversation"}
-          >
-            {running ? <StopIcon /> : <MicIcon />}
-          </button>
-        )}
-        <span className="eyebrow">{holdMode && mic.current && phase === "idle" ? "Hold to talk" : phaseLabel[phase]}</span>
-        {(timing.stt || timing.llm || timing.tts) && (
-          <span className="eyebrow" style={{ fontSize: 12 }}>
-            Last turn: speech {timing.stt ? (timing.stt / 1000).toFixed(1) : "-"}s · reply {timing.llm ? (timing.llm / 1000).toFixed(1) : "-"}s · voice {timing.tts ? (timing.tts / 1000).toFixed(1) : "-"}s
-          </span>
-        )}
+      <div className="callmid">
+        <div className="orbwrap">
+          <div className={`orbcall ${phase}`} style={ringStyle} />
+        </div>
+        <div className="state">{muted ? "Muted" : label[phase]}</div>
+        <div className="captions" aria-live="polite">
+          {you && <p className="you">{you}</p>}
+          {agent && <p className="agent">{agent}</p>}
+        </div>
       </div>
 
-      <form onSubmit={sendTyped} style={{ display: "flex", gap: 8, paddingTop: 8 }}>
-        <input className="textbox" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Type instead" aria-label="Type a message" />
-        <button className="chip" type="submit" disabled={phase === "thinking" || phase === "speaking"}>Send</button>
-      </form>
-    </>
+      {error && <div className="err" role="alert" style={{ margin: "0 20px" }}>{error}</div>}
+      <div className="meter">mic {meter.rms.toFixed(3)} · gate {meter.gate.toFixed(3)}{timing ? ` · ${timing}` : ""}</div>
+
+      <div className="callctl">
+        <button className="ctl" aria-pressed={muted} onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"}>
+          <MicIcon size={26} off={muted} dark />
+        </button>
+        <button className="ctl end" onClick={endCall} aria-label="End call">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.4"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+        <button className="ctl" aria-pressed={interrupt} onClick={toggleInterrupt} aria-label="Toggle interrupting">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 9v6h4l5 4V5L8 9H4z" />{interrupt && <path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" />}{!interrupt && <path d="M17 9l4 6M21 9l-4 6" />}</svg>
+        </button>
+      </div>
+    </div>
   );
 }
 
-const MicIcon = () => (
-  <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
-);
-const StopIcon = () => (
-  <svg width="30" height="30" viewBox="0 0 24 24" fill="#fff"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
-);
+function MicIcon({ size, off, dark }: { size: number; off?: boolean; dark?: boolean }) {
+  const c = dark ? "currentColor" : "#fff";
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.2">
+      <rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+      {off && <path d="M4 4l16 16" />}
+    </svg>
+  );
+}

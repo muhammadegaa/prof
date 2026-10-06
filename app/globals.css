@@ -63,3 +63,30 @@ button, input { font: inherit; }
 
 .area { min-height: 120px; border-radius: 14px; border: 1px solid var(--line); background: var(--bg); padding: 12px 14px; font-size: 14px; color: var(--text); resize: vertical; }
 .voice { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+
+.precall { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 18px; align-items: flex-start; min-height: 60dvh; }
+.lead { font-size: 17px; line-height: 1.5; color: var(--sub); margin: 0; max-width: 34ch; }
+.notice { background: var(--warn-bg); color: var(--warn); border-radius: 14px; padding: 11px 14px; font-size: 14px; line-height: 1.4; }
+.startcall { align-self: stretch; height: 64px; border-radius: 32px; border: 0; background: var(--accent); color: var(--on-accent); font-size: 18px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 12px; cursor: pointer; margin-top: 8px; }
+
+.callscreen { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 20px); }
+.calltop { display: flex; justify-content: space-between; align-items: center; padding: 18px 24px 0; }
+.live { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: var(--pos); background: var(--pos-bg); border-radius: 20px; padding: 6px 12px; }
+.live i { width: 7px; height: 7px; border-radius: 50%; background: var(--pos); }
+.timer { font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--muted); }
+.callmid { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 0 24px; min-height: 0; }
+.orbwrap { height: 220px; display: flex; align-items: center; justify-content: center; }
+.orbcall { width: 132px; height: 132px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 10px var(--surface-2), 0 0 0 22px var(--surface); transition: box-shadow 90ms linear; }
+.orbcall.speaking { animation: breathe 1.4s ease-in-out infinite; }
+.orbcall.thinking, .orbcall.connecting { animation: dim 1s ease-in-out infinite; }
+@keyframes breathe { 0%, 100% { box-shadow: 0 0 0 10px var(--surface-2), 0 0 0 22px var(--surface); } 50% { box-shadow: 0 0 0 20px var(--surface-2), 0 0 0 44px var(--surface); } }
+@keyframes dim { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+.state { font-size: 15px; font-weight: 500; color: var(--muted); }
+.captions { width: 100%; display: flex; flex-direction: column; gap: 12px; text-align: center; max-height: 34dvh; overflow: hidden; }
+.captions .you { margin: 0; font-size: 15px; line-height: 1.4; color: var(--muted); }
+.captions .agent { margin: 0; font-size: 22px; line-height: 1.35; font-weight: 600; letter-spacing: -0.01em; }
+.meter { text-align: center; font-size: 11px; color: var(--muted); padding: 6px 20px 10px; font-variant-numeric: tabular-nums; }
+.callctl { display: flex; justify-content: center; align-items: center; gap: 28px; padding: 4px 20px 0; }
+.ctl { width: 64px; height: 64px; border-radius: 50%; border: 0; background: var(--surface-2); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.ctl[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+.ctl.end { width: 76px; height: 76px; background: var(--danger); }
