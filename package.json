@@ -6,7 +6,9 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "invite": "node --env-file=.env.local scripts/invite.ts"
+    "invite": "node --env-file=.env.local scripts/invite.ts",
+    "push-career": "node --env-file=.env.local scripts/push-career.ts",
+    "push-profile": "node --env-file=.env.local scripts/push-career.ts --field profileMd"
   },
   "overrides": {
     "jose": "^5.10.0"

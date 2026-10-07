@@ -115,6 +115,8 @@ export type Dashboard = {
   lastWin: Win | null;
   voiceChosen: boolean;
   hasCalled: boolean;
+  profile: { chars: number; updatedAt: string | null } | null;
+  career: { chars: number; updatedAt: string | null } | null;
 };
 
 export async function getDashboard(uid: string): Promise<Dashboard> {
@@ -139,6 +141,8 @@ export async function getDashboard(uid: string): Promise<Dashboard> {
     lastWin: wins[0] ?? null,
     voiceChosen: !!(d?.voiceId || config.ttsVoiceId),
     hasCalled: !msg.empty,
+    profile: d?.profileMd ? { chars: d.profileMd.length, updatedAt: d.profileMdUpdatedAt?.toDate?.().toISOString() ?? null } : null,
+    career: d?.careerMd ? { chars: d.careerMd.length, updatedAt: d.careerMdUpdatedAt?.toDate?.().toISOString() ?? d.careerUpdatedAt?.toDate?.().toISOString() ?? null } : null,
   };
 }
 
