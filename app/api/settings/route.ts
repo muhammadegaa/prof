@@ -17,6 +17,9 @@ export const POST = withUser(async (req, user) => {
   const update: Record<string, unknown> = {};
 
   if (typeof body.nowMd === "string") {
+    if (body.nowMd.includes("[FILL IN")) {
+      return NextResponse.json({ error: "Replace every [FILL IN ...] with your own words first." }, { status: 400 });
+    }
     const parsed = parseNow(body.nowMd);
     if (!parsed.bet || !parsed.target) {
       return NextResponse.json({ error: "That does not look like NOW.md: no 'The target' or 'The one active bet' section." }, { status: 400 });

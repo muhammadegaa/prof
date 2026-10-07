@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
+import { nowTemplate } from "@/lib/now-template";
 
 type Voice = { id: string; name: string; previewUrl: string | null; description: string };
 
@@ -77,9 +78,15 @@ export function SettingsClient({ hasNow, updatedAt, wins }: { hasNow: boolean; u
         <p className="small">
           {imported.hasNow
             ? `${imported.wins} wins${imported.updatedAt ? `, updated ${new Date(imported.updatedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}. Paste a newer NOW.md below to refresh it.`
-            : "Paste the contents of your NOW.md so the agent knows your bet, wins and decisions."}
+            : "A short note with your goal, your current project and your wins. The agent reads it to know where you are."}
         </p>
-        <textarea className="area" value={now} onChange={(e) => setNow(e.target.value)} placeholder="Paste NOW.md here" aria-label="NOW.md contents" />
+        {!now.trim() && (
+          <button className="btn ghost block" onClick={() => setNow(nowTemplate(new Date().toISOString().slice(0, 10)))}>
+            <Icon name="doc" size={20} />{imported.hasNow ? "Start from the template" : "Start from a template"}
+          </button>
+        )}
+        <textarea className="area" value={now} onChange={(e) => setNow(e.target.value)} placeholder="Paste your NOW.md here, or start from the template above" aria-label="NOW.md contents" />
+        {now.includes("[FILL IN") && <p className="small">Replace every [FILL IN ...] with your own words. Wins can stay empty.</p>}
         <button className="btn block" onClick={saveNow} disabled={!now.trim() || saving}>{saving ? "Importing" : imported.hasNow ? "Update" : "Import"}</button>
         {msg && <div className={msg.ok ? "good" : "err"} role="status">{msg.text}</div>}
       </section>

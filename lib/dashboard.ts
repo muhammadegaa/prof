@@ -26,7 +26,7 @@ function section(md: string, title: string) {
 
 export function classify(kind: string, text: string): WinType {
   const k = `${kind} ${text}`.toLowerCase();
-  if (/£\s?\d|paid|payment|revenue/.test(kind.toLowerCase())) return "money";
+  if (/£\s?\d|£\s?in|money in|paid|payment|revenue/.test(kind.toLowerCase())) return "money";
   if (/killed/.test(kind.toLowerCase())) return "killed";
   if (/shipped/.test(kind.toLowerCase())) return "shipped";
   if (/contact|conversation|buyer|reply/.test(kind.toLowerCase())) return "buyer";
