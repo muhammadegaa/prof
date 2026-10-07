@@ -1,16 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { openMic, SpeechQueue, unlockAudio, type Mic } from "@/lib/voice-client";
+import { Icon } from "@/components/icons";
+import { PageHead, Rise } from "@/components/ui";
 
 type Phase = "idle" | "connecting" | "listening" | "thinking" | "speaking";
 
+const HINTS = ["Try: \"What should I do tonight?\"", "Try: \"Is this idea worth my hours?\"", "Try: \"Help me reply to a lead.\"", "Try: \"What am I avoiding?\""];
 const OPENER = "Hi. What is the one thing you will do today that moves money?";
 const label: Record<Phase, string> = { idle: "", connecting: "Connecting", listening: "Listening", thinking: "Thinking", speaking: "Speaking" };
 
 const mmss = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
-export function TalkClient() {
+export function TalkClient({ hasNow, voiceChosen }: { hasNow: boolean; voiceChosen: boolean }) {
   const [inCall, setInCall] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [you, setYou] = useState("");
@@ -21,7 +25,7 @@ export function TalkClient() {
   const [seconds, setSeconds] = useState(0);
   const [meter, setMeter] = useState({ rms: 0, gate: 0 });
   const [timing, setTiming] = useState("");
-  const [hasNow, setHasNow] = useState(true);
+  const [hintIdx, setHintIdx] = useState(0);
 
   const mic = useRef<Mic | null>(null);
   const queue = useRef<SpeechQueue | null>(null);
@@ -33,14 +37,13 @@ export function TalkClient() {
 
   useEffect(() => {
     try { const v = localStorage.getItem("pc_interrupt"); if (v !== null) { setInterrupt(v === "1"); interruptRef.current = v === "1"; } } catch {}
-    fetch("/api/settings").then((r) => r.json()).then((s) => setHasNow(!!s.hasNow)).catch(() => {});
     return () => endCall();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!inCall) return;
-    const id = setInterval(() => setSeconds((s) => s + 1), 1000);
+    const id = setInterval(() => { setSeconds((s) => s + 1); setHintIdx((i) => (i + 1) % 20); }, 1000);
     return () => clearInterval(id);
   }, [inCall]);
 
@@ -174,69 +177,88 @@ export function TalkClient() {
   const ringStyle = phase === "listening" && !muted
     ? { boxShadow: `0 0 0 ${10 + level * 18}px var(--surface-2), 0 0 0 ${22 + level * 40}px var(--surface)` }
     : undefined;
+  const ready = hasNow && voiceChosen;
 
   if (!inCall) {
     return (
-      <div className="precall">
-        <div>
-          <div className="eyebrow">Voice</div>
-          <h1 className="h1">Talk to your agent</h1>
-        </div>
-        <p className="lead">A live call. It knows your bet, your wins and what you committed to. Talk normally and interrupt any time.</p>
-        {!hasNow && <div className="notice">NOW.md is not imported yet, so it will not know your bet. Import it in Settings first.</div>}
-        {error && <div className="err" role="alert">{error}</div>}
-        <button className="startcall" onClick={startCall}>
-          <MicIcon size={26} /> Start call
-        </button>
-        <button className="chip" aria-pressed={interrupt} onClick={toggleInterrupt}>
-          Interrupting: {interrupt ? "on" : "off (use with speakers)"}
-        </button>
-      </div>
+      <Rise>
+        {[
+          <PageHead key="h" eyebrow="Voice" title="Talk to your agent" />,
+          <section key="hero" className="card hero">
+            <div className="heroorb"><Icon name="mic" size={44} stroke={2} /></div>
+            <p className="body" style={{ maxWidth: "28ch" }}>A live call. It knows your bet and your wins. Talk normally, and interrupt any time.</p>
+            {error && <div className="err" role="alert" style={{ width: "100%", textAlign: "left" }}>{error}</div>}
+            <button className="btn block" onClick={startCall} style={{ height: 58, fontSize: 17 }}>
+              <Icon name="mic" size={22} /> Start call
+            </button>
+            <button className="chip" aria-pressed={interrupt} onClick={toggleInterrupt}>
+              <Icon name={interrupt ? "speaker" : "speakeroff"} size={16} />
+              {interrupt ? "You can interrupt" : "Interrupting off"}
+            </button>
+          </section>,
+          !ready && (
+            <section key="ready" className="notice">
+              {!hasNow ? "It does not know your bet yet. " : ""}{!voiceChosen ? "No voice chosen yet. " : ""}
+              <Link href="/settings" style={{ fontWeight: 700, textDecoration: "underline" }}>Open Settings</Link>
+            </section>
+          ),
+          <section key="try" className="card flat">
+            <h2 className="h2">Things to say</h2>
+            <div className="try">
+              <div>&ldquo;What should I do tonight?&rdquo;</div>
+              <div>&ldquo;Is this idea worth my hours?&rdquo;</div>
+              <div>&ldquo;Help me reply to a lead.&rdquo;</div>
+              <div>&ldquo;What am I avoiding?&rdquo;</div>
+            </div>
+          </section>,
+        ].filter(Boolean) as React.ReactNode[]}
+      </Rise>
     );
   }
+
+  const hint = !you && phase === "listening" && !muted ? HINTS[Math.floor(hintIdx / 5) % HINTS.length] : "";
 
   return (
     <div className="callscreen" role="dialog" aria-label="Voice call">
       <div className="calltop">
-        <span className="live"><i />{phase === "connecting" ? "Connecting" : "Connected"}</span>
+        <span className={`pill ${phase === "connecting" ? "" : "pos"}`}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "currentColor" }} />
+          {phase === "connecting" ? "Connecting" : "Connected"}
+        </span>
         <span className="timer">{mmss(seconds)}</span>
       </div>
 
       <div className="callmid">
         <div className="orbwrap">
-          <div className={`orbcall ${phase}`} style={ringStyle} />
+          <div className={`orbcall ${phase}`} style={ringStyle}>
+            <Icon name={muted ? "micoff" : "mic"} size={44} stroke={2} />
+          </div>
         </div>
         <div className="state">{muted ? "Muted" : label[phase]}</div>
         <div className="captions" aria-live="polite">
           {you && <p className="you">{you}</p>}
           {agent && <p className="agent">{agent}</p>}
         </div>
+        <div className="hint">{hint}</div>
       </div>
 
       {error && <div className="err" role="alert" style={{ margin: "0 20px" }}>{error}</div>}
       <div className="meter">mic {meter.rms.toFixed(3)} · gate {meter.gate.toFixed(3)}{timing ? ` · ${timing}` : ""}</div>
 
       <div className="callctl">
-        <button className="ctl" aria-pressed={muted} onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"}>
-          <MicIcon size={26} off={muted} dark />
-        </button>
-        <button className="ctl end" onClick={endCall} aria-label="End call">
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.4"><path d="M6 6l12 12M18 6L6 18" /></svg>
-        </button>
-        <button className="ctl" aria-pressed={interrupt} onClick={toggleInterrupt} aria-label="Toggle interrupting">
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 9v6h4l5 4V5L8 9H4z" />{interrupt && <path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" />}{!interrupt && <path d="M17 9l4 6M21 9l-4 6" />}</svg>
-        </button>
+        <div className="ctlcol">
+          <button className="ctl" aria-pressed={muted} onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"}><Icon name={muted ? "micoff" : "mic"} size={26} /></button>
+          {muted ? "Unmute" : "Mute"}
+        </div>
+        <div className="ctlcol">
+          <button className="ctl end" onClick={endCall} aria-label="End call"><Icon name="x" size={30} stroke={2.4} /></button>
+          End
+        </div>
+        <div className="ctlcol">
+          <button className="ctl" aria-pressed={!interrupt} onClick={toggleInterrupt} aria-label="Toggle interrupting"><Icon name={interrupt ? "speaker" : "speakeroff"} size={26} /></button>
+          {interrupt ? "Interrupt on" : "Interrupt off"}
+        </div>
       </div>
     </div>
-  );
-}
-
-function MicIcon({ size, off, dark }: { size: number; off?: boolean; dark?: boolean }) {
-  const c = dark ? "currentColor" : "#fff";
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.2">
-      <rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-      {off && <path d="M4 4l16 16" />}
-    </svg>
   );
 }

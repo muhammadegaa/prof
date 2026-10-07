@@ -9,5 +9,5 @@ export function SignOut() {
     await signOut(clientAuth);
     window.location.href = "/login";
   }
-  return <button className="btn" onClick={out}>Sign out</button>;
+  return <button className="btn ghost block" onClick={out}>Sign out</button>;
 }

@@ -5,6 +5,7 @@ const num = (v: string | undefined, d: number) => {
 
 export const config = {
   appName: "profcareer",
+  userName: process.env.USER_NAME ?? "Ega",
   sessionCookie: "pc_session",
   sessionDays: num(process.env.SESSION_DAYS, 5),
   firestoreLocation: process.env.FIRESTORE_LOCATION ?? "europe-west2",

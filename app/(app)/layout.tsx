@@ -6,7 +6,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="shell">
       <main className="content">{children}</main>
-      <Dock />
+      <Dock pending={0} />
     </div>
   );
 }
